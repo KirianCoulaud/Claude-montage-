@@ -4,6 +4,9 @@ import subprocess
 from timeline import PIECES, SOURCES, GAIN_DB, FPS, W, H
 
 
+COACH_GRADE = "lutyuv=u='val+1.5':v='val-5.5',eq=brightness=-0.025:contrast=1.06"
+
+
 def run(cmd):
     subprocess.run(cmd, check=True)
 
@@ -30,6 +33,11 @@ for i, p in enumerate(PIECES):
             # zoom anchored on the top so the burned-in title stays in frame
             vf = (f"scale=w='trunc({W}*({z0}+{k}*t)/2)*2':h=-2:eval=frame,"
                   f"crop={W}:{H}:(iw-{W})/2:0")
+    if p["kind"] == "cam" and p["src"] == "v1" and 6.0 <= p["a"] < 15.1:
+        # the "coach sportif" clip is warmer and brighter than the rest of the
+        # footage: neutralise the red cast (title band left untouched)
+        vf = (f"split[t][g];[g]crop={W}:{H - 360}:0:360,{COACH_GRADE}[gg];"
+              f"[t][gg]overlay=0:360,") + vf
     run(["ffmpeg", "-v", "error", "-y", "-ss", f"{ss:.3f}", "-i", src, "-frames:v", str(round(dur * FPS)),
          "-an", "-vf", vf + f",fps={FPS},format=yuv420p",
          "-c:v", "libx264", "-preset", "fast", "-crf", "12", out])

@@ -47,27 +47,38 @@ NFRAMES = round(TOTAL * FPS)
 boards = []
 for b in BOARDS:
     nb = dict(b)
-    nb["a"], nb["b"] = new_time(b["a"]), new_time(b["b"])
-    if "drop" in b:
-        nb["drop"] = new_time(b["drop"])
-    if "z" in b:
-        nb["z"] = new_time(b["z"])
+    for k in ("a", "b", "drop", "z"):
+        if k in b:
+            nb[k] = new_time(*b[k])
     boards.append(nb)
 
 cards = []  # kinetic text cards replacing the old end-of-segment boards
-CARD_CONTEXT = [24.71, 39.46, 51.40]  # sentence start shown when the card opens
+CARD_CONTEXT = [24.71, 39.46, 51.40]  # sentence start (part 1) shown when the card opens
 CARD_TIER = ["B", "S", "C"]
 ci = 0
 for i, p in enumerate(PIECES):
     if p["kind"] == "card":
         t0, t1 = STARTS[i], STARTS[i] + p["b"] - p["a"]
-        ws = [(new_time(s) if s >= p["a"] - 0.05 else None, w) for s, w in WORDS
-              if CARD_CONTEXT[ci] - 0.01 <= s < p["b"]]
+        ws = [(new_time(src, s) if s >= p["a"] - 0.05 else None, w) for src, s, w in WORDS
+              if src == p["src"] and CARD_CONTEXT[ci] - 0.01 <= s < p["b"]]
         cards.append(dict(a=t0, b=t1, words=ws, tier=CARD_TIER[ci]))
         ci += 1
 
-FLASH_AT = [STARTS[i] for i in (2, 6, 12, 17, 22)] + [c["a"] for c in cards]
+# flash + whoosh on every new section: presentation, each seance, cards, outro
+SECTION_STARTS = [STARTS[i] for i in (2, 6, 12, 17)]
+for i, p in enumerate(PIECES):
+    prev = PIECES[i - 1] if i else None
+    if prev and (p.get("pill") != prev.get("pill") or p["kind"] == "outro") and p.get("titled"):
+        SECTION_STARTS.append(STARTS[i])
+FLASH_AT = SECTION_STARTS + [c["a"] for c in cards]
 RECAP_AT = STARTS[-1]
+
+
+def piece_at(t):
+    for i, p in enumerate(PIECES):
+        if STARTS[i] <= t < STARTS[i] + p["b"] - p["a"]:
+            return i, p
+    return len(PIECES) - 1, PIECES[-1]
 
 
 def in_card(t):
@@ -76,7 +87,7 @@ def in_card(t):
 
 # ------------------------------------------------------------- subtitles
 def build_chunks():
-    items = [(new_time(s), w) for s, w in WORDS]
+    items = sorted((new_time(src, s), w) for src, s, w in WORDS)
     chunks, cur = [], []
     for i, (t, w) in enumerate(items):
         if in_card(t):
@@ -111,7 +122,7 @@ def render_chunk(ch, active):
     key = (id(ch), active)
     if key in _sub_cache:
         return _sub_cache[key]
-    size, stroke = 82, 9
+    size, stroke = 66, 7  # 20 % smaller than the first version (82 / 9)
     words = [w.upper() for _, w in ch["words"]]
     imgs = []
     for j, w in enumerate(words):
@@ -124,12 +135,12 @@ def render_chunk(ch, active):
         color = YELLOW if is_act else (255, 255, 255)
         y = int(size * 1.6) // 2
         # soft drop shadow
-        d.text((4 - bbox[0], y + 7), w, font=f, fill=(0, 0, 0, 140), anchor="lm",
+        d.text((3 - bbox[0], y + 6), w, font=f, fill=(0, 0, 0, 140), anchor="lm",
                stroke_width=stroke, stroke_fill=(0, 0, 0, 140))
         d.text((-bbox[0], y), w, font=f, fill=color, anchor="lm",
                stroke_width=stroke, stroke_fill=(0, 0, 0))
         imgs.append(im)
-    gap = 22
+    gap = 18
     lines, line, lw = [], [], 0
     for im in imgs:
         if line and lw + gap + im.width > 980:
@@ -188,13 +199,16 @@ def make_row(tier):
 
 
 def make_card(tier, title, sub):
-    cw, chh = 392, 220
+    cw, chh = 372, 220
     im = Image.new("RGBA", (cw + 40, chh + 40), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
     c = TIER_COLORS[tier]
     d.rounded_rectangle((26, 28, cw + 26, chh + 28), 24, fill=(0, 0, 0, 120))
     d.rounded_rectangle((20, 20, cw + 20, chh + 20), 24, fill=(14, 14, 16, 240), outline=c, width=5)
-    d.text((20 + cw // 2, 20 + chh // 2 - 26), title, font=font("Bold", 46), anchor="mm",
+    fs = 46
+    while font("Bold", fs).getlength(title) > cw - 40:
+        fs -= 2
+    d.text((20 + cw // 2, 20 + chh // 2 - 26), title, font=font("Bold", fs), anchor="mm",
            fill=(255, 255, 255))
     d.text((20 + cw // 2, 20 + chh // 2 + 32), sub, font=font("Medium", 34), anchor="mm",
            fill=(225, 225, 225))
@@ -202,8 +216,18 @@ def make_card(tier, title, sub):
 
 
 ROWS = {t: make_row(t) for t in TIERS}
-CARD_IMGS = {b["card"][0]: make_card(*b["card"]) for b in BOARDS if b["card"]}
-CARD_POS_X = 608  # card left (incl. 20 px shadow margin)
+CARD_IMGS = {b["card"]: make_card(*b["card"]) for b in BOARDS if b["card"]}
+SLOT_POS_X = [626, 234]  # card left (incl. 20 px shadow margin): 1st card right, 2nd left
+
+
+def placed_before(idx):
+    """Cards already on the board when board `idx` opens: {card: slot}."""
+    out, count = {}, {t: 0 for t in TIERS}
+    for b in boards[:idx]:
+        if b["card"]:
+            out[b["card"]] = count[b["card"][0]]
+            count[b["card"][0]] += 1
+    return out, count
 
 
 def darken_layer(alpha):
@@ -249,14 +273,14 @@ def draw_board(frame, t, b, idx):
             row.putalpha(row.getchannel("A").point(lambda v: int(v * al)))
         layer.alpha_composite(row, (max(0, x_off), ROW_Y0 + i * ROW_STEP + shake))
 
-        # cards already placed on previous boards
-        for pb in boards[1:idx]:
-            if pb["card"][0] == tier:
-                cimg = CARD_IMGS[tier]
+        # cards already placed on previous boards (every card on the final recap)
+        for cd, slot in placed_before(len(boards) if b.get("recap") else idx)[0].items():
+            if cd[0] == tier:
+                cimg = CARD_IMGS[cd]
                 if al < 1:
                     cimg = cimg.copy()
                     cimg.putalpha(cimg.getchannel("A").point(lambda v: int(v * al)))
-                layer.alpha_composite(cimg, (CARD_POS_X + max(0, x_off), ROW_Y0 + i * ROW_STEP - 18 + shake))
+                layer.alpha_composite(cimg, (SLOT_POS_X[slot] + max(0, x_off), ROW_Y0 + i * ROW_STEP - 18 + shake))
 
     if b["card"]:
         tier = b["card"][0]
@@ -267,7 +291,8 @@ def draw_board(frame, t, b, idx):
             land = ease_out(k)
             sc = 1.45 - 0.45 * land if k < 1 else 1.0
             y = int(ty - 340 * (1 - land))
-            cimg = CARD_IMGS[tier]
+            cimg = CARD_IMGS[b["card"]]
+            slot = placed_before(idx)[1][tier]
             out_a = clamp01((e - t) / dur_out)
             if sc != 1.0:
                 cimg = cimg.resize((int(cimg.width * sc), int(cimg.height * sc)), Image.BILINEAR)
@@ -275,7 +300,7 @@ def draw_board(frame, t, b, idx):
             if al < 1:
                 cimg = cimg.copy()
                 cimg.putalpha(cimg.getchannel("A").point(lambda v: int(v * al)))
-            cx = CARD_POS_X + 216 - cimg.width // 2
+            cx = SLOT_POS_X[slot] + 206 - cimg.width // 2
             cy = y + 130 - cimg.height // 2
             layer.alpha_composite(cimg, (cx, cy + shake))
             # glow flash on the row at landing
@@ -375,6 +400,69 @@ def draw_card(frame, t, c):
     frame.alpha_composite(lay)
 
 
+# ------------------------------------------------------------- title + pill (raw parts)
+def _fit(name, text, width):
+    size = 20
+    while font(name, size + 1).getlength(text) <= width:
+        size += 1
+    return font(name, size)
+
+
+def make_title():
+    from PIL import ImageFilter
+    im = Image.new("RGBA", (W, 380), (0, 0, 0, 0))
+    glow = Image.new("RGBA", im.size, (0, 0, 0, 0))
+    gd = ImageDraw.Draw(glow)
+    ft = _fit("Black", "TIER LIST", 400)
+    fs = _fit("Bold", "Les séances pour performer sur 10 km", 770)
+    gd.text((W // 2, 215), "TIER LIST", font=ft, anchor="mm", fill=(0, 0, 0, 200), stroke_width=8,
+            stroke_fill=(0, 0, 0, 200))
+    gd.text((W // 2, 312), "Les séances pour performer sur 10 km", font=fs, anchor="mm",
+            fill=(0, 0, 0, 220), stroke_width=4, stroke_fill=(0, 0, 0, 220))
+    glow = glow.filter(ImageFilter.GaussianBlur(9))
+    im.alpha_composite(glow)
+    d = ImageDraw.Draw(im)
+    d.text((W // 2, 215), "TIER LIST", font=ft, anchor="mm", fill=(255, 59, 31), stroke_width=5,
+           stroke_fill=(255, 255, 255))
+    d.text((W // 2, 312), "Les séances pour performer sur 10 km", font=fs, anchor="mm", fill=(255, 255, 255))
+    return im
+
+
+TITLE = make_title()
+_pills = {}
+
+
+def make_pill(text):
+    if text not in _pills:
+        f = font("Bold", 40)
+        tw = int(f.getlength(text))
+        pw, ph = tw + 76, 78
+        im = Image.new("RGBA", (pw + 12, ph + 12), (0, 0, 0, 0))
+        d = ImageDraw.Draw(im)
+        d.rounded_rectangle((8, 9, pw + 8, ph + 9), ph // 2, fill=(0, 0, 0, 110))
+        d.rounded_rectangle((4, 4, pw + 4, ph + 4), ph // 2, fill=(22, 22, 22, 235),
+                            outline=(255, 122, 26), width=4)
+        d.text((4 + pw // 2, 4 + ph // 2 + 1), text, font=f, anchor="mm", fill=(255, 255, 255))
+        _pills[text] = im
+    return _pills[text]
+
+
+def draw_title(frame, t, p, board_on):
+    frame.alpha_composite(TITLE)
+    if not p.get("pill") or board_on:
+        return
+    # pop-in at the start of the seance (first piece carrying this label)
+    first = min(STARTS[i] for i, q in enumerate(PIECES) if q.get("pill") == p["pill"])
+    k = (t - first - 0.1) / 0.22
+    if k < 0:
+        return
+    im = make_pill(p["pill"])
+    if k < 1:
+        sc = 0.4 + 0.6 * ease_out_back(k, 2.2)
+        im = im.resize((max(1, int(im.width * sc)), max(1, int(im.height * sc))), Image.BILINEAR)
+    frame.alpha_composite(im, ((W - im.width) // 2, 440 - im.height // 2))
+
+
 # ------------------------------------------------------------- frames
 def frame_at(n):
     t = n / FPS
@@ -391,6 +479,9 @@ def frame_at(n):
         if b["a"] <= t < b["b"]:
             draw_board(canvas(), t, b, idx)
             board_on = True
+    _, p = piece_at(t)
+    if p.get("titled"):
+        draw_title(canvas(), t, p, board_on)
     for c in cards:
         if c["a"] <= t < c["b"]:
             draw_card(canvas(), t, c)
@@ -437,6 +528,9 @@ def build_sfx():
         if "z" in b:
             put(sfx.bonk(0.5), b["z"])
             put(sfx.scratch(0.25), b["z"] + 0.05)
+    for st in SECTION_STARTS[4:]:
+        if st != RECAP_AT:
+            put(sfx.pop(1000, 420, 0.1, 0.35), st + 0.12)
     for c in cards:
         for t, _ in c["words"]:
             if t is not None:
@@ -455,7 +549,6 @@ def build_sfx():
 
 def hue_expr():
     terms = [f"clip(min((t-{b['a']:.3f})/0.2\\,({b['b']:.3f}-t)/0.2)\\,0\\,1)" for b in boards]
-    # boards in the source recap are already grayscale; nothing to do there
     m = terms[0]
     for x in terms[1:]:
         m = f"max({m}\\,{x})"
@@ -478,7 +571,7 @@ def main():
            "-f", "rawvideo", "-pix_fmt", "rgba", "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-",
            "-i", "build/voice.wav", "-i", "build/sfx.wav",
            "-filter_complex", filt, "-map", "[v]", "-map", "[a]",
-           "-c:v", "libx264", "-preset", "medium", "-crf", "21", "-maxrate", "9M", "-bufsize", "18M", "-profile:v", "high",
+           "-c:v", "libx264", "-preset", "medium", "-crf", "22", "-maxrate", "6M", "-bufsize", "12M", "-profile:v", "high",
            "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-t", f"{TOTAL:.3f}", OUT]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
     empty = bytes(W * H * 4)

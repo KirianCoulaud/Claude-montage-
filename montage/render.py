@@ -65,7 +65,7 @@ for i, p in enumerate(PIECES):
         ci += 1
 
 # flash + whoosh on every new section: presentation, each seance, cards, outro
-SECTION_STARTS = [STARTS[i] for i in (2, 6, 12, 17)]
+SECTION_STARTS = [STARTS[i] for i in (2, 4, 10, 15)]
 for i, p in enumerate(PIECES):
     prev = PIECES[i - 1] if i else None
     if prev and (p.get("pill") != prev.get("pill") or p["kind"] == "outro") and p.get("titled"):

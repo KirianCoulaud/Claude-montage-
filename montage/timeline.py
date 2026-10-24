@@ -41,9 +41,7 @@ def card(src, a, b, bg):
 cam("v1", 0.95, 2.60, 1.12)          # intro hook
 cam("v1", 2.60, 5.75)
 cam("v1", 6.15, 8.30)                # presentation
-cam("v1", 8.30, 10.55, 1.12)
-cam("v1", 10.55, 12.40)
-cam("v1", 12.40, 14.35, 1.15)
+cam("v1", 8.30, 10.15, 1.12)         # stops after "coach sportif diplome"
 cam("v1", 15.35, 16.25, 1.12)        # 1. Allure 5 km (B)
 cam("v1", 16.25, 18.10)
 cam("v1", 18.10, 21.00, static=True)
@@ -121,10 +119,7 @@ _v1 = [
     (2.68, "les"), (3.00, "meilleures"), (3.24, "séances"), (3.64, "et"), (3.80, "les"),
     (3.96, "pires"), (4.28, "pour"), (4.44, "préparer"), (4.92, "son"), (5.16, "10"), (5.40, "km."),
     (6.32, "Déjà,"), (6.72, "salut,"), (7.04, "moi"), (7.20, "c'est"), (7.36, "Kirian."),
-    (8.37, "Je"), (8.45, "suis"), (8.53, "coach"), (8.95, "sportif"), (9.41, "diplômé,"),
-    (10.60, "spécialisé"), (11.16, "dans"), (11.40, "la"), (11.52, "course"), (11.75, "à"), (11.88, "pied."),
-    (12.44, "Et"), (12.60, "aujourd'hui,"), (12.92, "on"), (13.08, "note"), (13.40, "les"),
-    (13.48, "séances"), (13.80, "10"), (14.04, "km."),
+    (8.37, "Je"), (8.45, "suis"), (8.53, "coach"), (8.95, "sportif"), (9.41, "diplômé."),
     (15.57, "Première"), (15.89, "séance :"),
     (16.31, "4"), (16.55, "x"), (16.79, "1000"), (17.03, "à"), (17.11, "l'allure"), (17.51, "5"), (17.67, "km."),
     (18.23, "Celle-là,"), (18.55, "on"), (18.71, "va"), (18.79, "la"), (18.95, "mettre"), (19.11, "en"), (19.27, "B."),
@@ -192,7 +187,7 @@ _p2 = [
 WORDS = [("v1", t, w) for t, w in _v1] + [("p1", t, w) for t, w in _p1] + [("p2", t, w) for t, w in _p2]
 
 # Words emphasised in the subtitles / kinetic cards
-HIGHLIGHT = {"pires", "meilleures", "Kirian.", "diplômé,", "B.", "S", "S.", "C,", "C.", "A.", "Z !",
+HIGHLIGHT = {"pires", "meilleures", "Kirian.", "diplômé.", "B.", "S", "S.", "C,", "C.", "A.", "Z !",
              "vitesse.", "vitesse,", "SV2.", "seuil", "élevée.", "blesser", "performer.", "classer",
              "durabilité", "nerveuse.", "VMA.", "tempo."}
 

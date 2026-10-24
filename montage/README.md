@@ -1,6 +1,6 @@
 # Montage – Tier list des séances 10 km
 
-Résultat : `../tier-list-10km-final.mp4` (1080x1920, 30 fps, 1 min 42, -14 LUFS).
+Résultat : `../tier-list-10km-final.mp4` (1080x1920, 30 fps, 1 min 38, -14 LUFS).
 
 - Sources : `source/` (partie 1 déjà titrée + suite partie 1 et 2 brutes, plans jambes / route en fin de partie 2).
 - `timeline.py` : découpe (blancs retirés), transcription corrigée mot à mot, moments où les tableaux apparaissent.

@@ -2,6 +2,7 @@
 frame by frame with Pillow, composite on build/base.mp4, add the sound design and
 export the final video."""
 import math
+import os
 import subprocess
 import sys
 import numpy as np
@@ -555,6 +556,13 @@ def hue_expr():
     return f"1-0.85*{m}"
 
 
+# HQ=1: high quality export for publishing (~150 MB, too big for GitHub)
+if os.environ.get("HQ"):
+    VIDEO_OPTS = ["-preset", "slow", "-crf", "16", "-maxrate", "15M", "-bufsize", "30M"]
+else:
+    VIDEO_OPTS = ["-preset", "medium", "-crf", "22", "-maxrate", "6M", "-bufsize", "12M"]
+
+
 def main():
     build_sfx()
     # desaturate the footage under the board only (keep the burned-in title in colour)
@@ -571,8 +579,8 @@ def main():
            "-f", "rawvideo", "-pix_fmt", "rgba", "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-",
            "-i", "build/voice.wav", "-i", "build/sfx.wav",
            "-filter_complex", filt, "-map", "[v]", "-map", "[a]",
-           "-c:v", "libx264", "-preset", "medium", "-crf", "22", "-maxrate", "6M", "-bufsize", "12M", "-profile:v", "high",
-           "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-t", f"{TOTAL:.3f}", OUT]
+           "-c:v", "libx264", *VIDEO_OPTS, "-profile:v", "high",
+           "-c:a", "aac", "-b:a", "256k" if os.environ.get("HQ") else "192k", "-movflags", "+faststart", "-t", f"{TOTAL:.3f}", OUT]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
     empty = bytes(W * H * 4)
     only = [int(x) for x in sys.argv[2:]]  # optional: render a subset (preview)

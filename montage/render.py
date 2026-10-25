@@ -556,31 +556,15 @@ def hue_expr():
     return f"1-0.85*{m}"
 
 
-# HQ=1: high quality export for publishing (~150 MB, too big for GitHub)
+# HQ=1: high quality export for publishing (~185 MB, too big for GitHub)
+# TARGET_MB=98: two-pass export sized just under that many megabytes
 if os.environ.get("HQ"):
     VIDEO_OPTS = ["-preset", "slow", "-crf", "16", "-maxrate", "15M", "-bufsize", "30M"]
 else:
     VIDEO_OPTS = ["-preset", "medium", "-crf", "22", "-maxrate", "6M", "-bufsize", "12M"]
 
 
-def main():
-    build_sfx()
-    # desaturate the footage under the board only (keep the burned-in title in colour)
-    filt = (f"[0:v]split[top][low];[low]crop={W}:{H - 340}:0:340,hue=s='{hue_expr()}'[lowg];"
-            f"[top][lowg]overlay=0:340[bv];"
-            f"[bv][1:v]overlay=0:0:format=auto,format=yuv420p[v];"
-            "[2:a]acompressor=threshold=-20dB:ratio=3:attack=5:release=80:makeup=2,"
-            "apad=whole_dur=%.3f[vo];" % TOTAL +
-            "[3:a]volume=0.75[fx];"
-            "[vo][fx]amix=inputs=2:normalize=0:duration=first,"
-            "loudnorm=I=-14:TP=-1.0:LRA=9,aresample=48000[a]")
-    cmd = ["ffmpeg", "-v", "error", "-y",
-           "-i", "build/base.mp4",
-           "-f", "rawvideo", "-pix_fmt", "rgba", "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-",
-           "-i", "build/voice.wav", "-i", "build/sfx.wav",
-           "-filter_complex", filt, "-map", "[v]", "-map", "[a]",
-           "-c:v", "libx264", *VIDEO_OPTS, "-profile:v", "high",
-           "-c:a", "aac", "-b:a", "256k" if os.environ.get("HQ") else "192k", "-movflags", "+faststart", "-t", f"{TOTAL:.3f}", OUT]
+def encode(cmd):
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
     empty = bytes(W * H * 4)
     only = [int(x) for x in sys.argv[2:]]  # optional: render a subset (preview)
@@ -596,6 +580,37 @@ def main():
     proc.wait()
     if proc.returncode:
         raise SystemExit(proc.returncode)
+
+
+def main():
+    build_sfx()
+    # desaturate the footage under the board only (keep the burned-in title in colour)
+    filt = (f"[0:v]split[top][low];[low]crop={W}:{H - 340}:0:340,hue=s='{hue_expr()}'[lowg];"
+            f"[top][lowg]overlay=0:340[bv];"
+            f"[bv][1:v]overlay=0:0:format=auto,format=yuv420p[v];"
+            "[2:a]acompressor=threshold=-20dB:ratio=3:attack=5:release=80:makeup=2,"
+            "apad=whole_dur=%.3f[vo];" % TOTAL +
+            "[3:a]volume=0.75[fx];"
+            "[vo][fx]amix=inputs=2:normalize=0:duration=first,"
+            "loudnorm=I=-14:TP=-1.0:LRA=9,aresample=48000[a]")
+    hq = os.environ.get("HQ") or os.environ.get("TARGET_MB")
+    abitrate = 256 if hq else 192
+    cmd = ["ffmpeg", "-v", "error", "-y",
+           "-i", "build/base.mp4",
+           "-f", "rawvideo", "-pix_fmt", "rgba", "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-",
+           "-i", "build/voice.wav", "-i", "build/sfx.wav",
+           "-filter_complex", filt, "-map", "[v]"]
+    out = ["-c:a", "aac", "-b:a", f"{abitrate}k", "-movflags", "+faststart", "-t", f"{TOTAL:.3f}", OUT]
+    target = os.environ.get("TARGET_MB")
+    if target:
+        # two-pass encode sized to land just under TARGET_MB (1.5 % kept for the container)
+        vk = int(float(target) * 1e6 * 8 * 0.985 / TOTAL / 1000) - abitrate
+        two = ["-c:v", "libx264", "-preset", "slow", "-b:v", f"{vk}k", "-maxrate", f"{2 * vk}k",
+               "-bufsize", f"{4 * vk}k", "-profile:v", "high", "-passlogfile", "build/x264pass"]
+        encode(cmd + ["-map", "[a]"] + two + ["-pass", "1", "-c:a", "aac", "-f", "mp4", "/dev/null"])
+        encode(cmd + ["-map", "[a]"] + two + ["-pass", "2"] + out)
+    else:
+        encode(cmd + ["-map", "[a]", "-c:v", "libx264", *VIDEO_OPTS, "-profile:v", "high"] + out)
 
 
 if __name__ == "__main__":
